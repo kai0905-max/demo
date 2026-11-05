@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>教室設備報修（v2 本地模擬）</title>
+<style>
+:root{
+  --text:#1b1f24; --muted:#4a5561; --bg:#f4f6f8; --card:#ffffff; --line:#b8c2cc;
+  --primary:#0b57a4; --primary-soft:#e6eff9;
+  --error:#b3261e; --error-bg:#fdeceb;
+  --ok:#1d6b3a; --ok-bg:#e8f5ec;
+  --info-bg:#eef3f8; --focus:#d98a00;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;
+  font-size:16px;line-height:1.6;color:var(--text);background:var(--bg)}
+main{max-width:480px;margin:0 auto;padding:16px}
+h1{font-size:1.5rem;margin:4px 0}
+h2{font-size:1.15rem;margin:0 0 8px}
+p{margin:0 0 8px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin:16px 0}
+.note{color:var(--muted)}
+.label,label{display:block;font-weight:600;margin-bottom:4px}
+input[type=text],textarea,select{width:100%;font:inherit;color:var(--text);background:#fff;
+  padding:10px 12px;border:2px solid var(--line);border-radius:8px;min-height:48px}
+textarea{min-height:120px;resize:vertical}
+[aria-invalid="true"]{border-color:var(--error)}
+.row{display:flex;gap:8px}
+.row input{flex:1;min-width:0}
+button{font:inherit;font-weight:600;min-height:48px;min-width:48px;padding:10px 16px;border-radius:8px;
+  border:2px solid var(--primary);background:#fff;color:var(--primary);cursor:pointer}
+button.primary{background:var(--primary);color:#fff;width:100%}
+button.block{width:100%;margin-top:8px}
+button:disabled{background:#d5dbe1;border-color:#d5dbe1;color:#3d4650;cursor:not-allowed}
+:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+.err{color:var(--error);font-weight:600;margin-top:6px}
+fieldset{border:0;padding:0;margin:0 0 16px;min-width:0}
+legend{font-weight:600;margin-bottom:4px;padding:0}
+.cats{display:grid;grid-template-columns:repeat(auto-fit,minmax(128px,1fr));gap:8px}
+.cats label{display:flex;align-items:center;gap:8px;min-height:48px;padding:8px 12px;margin:0;
+  border:2px solid var(--line);border-radius:8px;font-weight:500;cursor:pointer}
+.cats input{width:22px;height:22px;margin:0;flex:none}
+.cats label:has(input:checked){border-color:var(--primary);background:var(--primary-soft)}
+.field{margin-bottom:16px}
+.status{padding:12px;border-radius:8px;margin-top:12px}
+.status.info{background:var(--info-bg)}
+.status.error{background:var(--error-bg);border-left:4px solid var(--error)}
+.status.ok{background:var(--ok-bg);border-left:4px solid var(--ok)}
+.status strong{display:block}
+ul.list{margin:8px 0 0;padding-left:20px}
+#preview img{display:block;max-width:100%;max-height:220px;margin-top:8px;border-radius:8px;border:1px solid var(--line)}
+dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:4px 12px}
+dt{font-weight:600}
+dd{margin:0;overflow-wrap:anywhere}
+details{background:var(--card);border:1px solid var(--line);border-radius:12px;margin:16px 0}
+summary{min-height:48px;padding:12px 16px;cursor:pointer;font-weight:600}
+.details-body{padding:0 16px 16px}
+pre{white-space:pre-wrap;word-break:break-all;background:#f7f9fb;border:1px solid var(--line);
+  border-radius:8px;padding:12px;font-size:15px;margin:8px 0 0}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <p class="note">行動平台設計與管理｜期中作品 v2</p>
+    <h1>教室設備報修</h1>
+    <p class="note">本頁為<strong>本地模擬</strong>：不會發出 HTTP 請求，也不會真的通知總務處。資料只存在本分頁記憶體，重新整理即重設，不跨分頁共享。</p>
+  </header>
+
+  <!-- 步驟 1：教室編號 -->
+  <section class="card" aria-labelledby="s1">
+    <h2 id="s1">1. 輸入教室編號</h2>
+    <form id="roomForm" novalidate>
+      <label for="room">教室編號（即教室分機，3 位數字）</label>
+      <div class="row">
+        <input id="room" type="text" inputmode="numeric" autocomplete="off" maxlength="3"
+               aria-describedby="roomHint roomErr">
+        <button type="submit" id="queryBtn">查詢</button>
+      </div>
+      <p id="roomHint" class="note">示範可用：101–103、201–203 … 601–603；專科教室 701 自然、702 電腦、703 音樂。</p>
+      <p id="roomErr" class="err" hidden></p>
+    </form>
+    <div id="readStatus" aria-live="polite"></div>
+  </section>
+
+  <!-- 步驟 2：報修內容 -->
+  <section class="card" id="formCard" hidden aria-labelledby="s2">
+    <h2 id="s2">2. 填寫報修內容</h2>
+    <p id="roomLabel" class="note"></p>
+    <form id="repairForm" novalidate>
+      <fieldset id="catSet" aria-describedby="catErr">
+        <legend>設備類別（必選）</legend>
+        <div class="cats" id="cats"></div>
+        <p id="catErr" class="err" hidden></p>
+      </fieldset>
+
+      <div class="field">
+        <label for="desc">問題描述（必填，10～200 字）</label>
+        <textarea id="desc" maxlength="200" aria-describedby="descCount descErr"
+          placeholder="例如：投影機開機後畫面一直閃爍，第 3 節要上課"></textarea>
+        <p id="descCount" class="note">目前 0 字</p>
+        <p id="descErr" class="err" hidden></p>
+      </div>
+
+      <div class="field">
+        <label for="photo">照片（選填，僅在本頁預覽，不會上傳）</label>
+        <input id="photo" type="file" accept="image/*">
+        <p class="note">請勿拍入學生或任何個人資料。</p>
+        <div id="preview"></div>
+      </div>
+
+      <button type="submit" class="primary" id="submitBtn">送出報修</button>
+      <div id="submitStatus" aria-live="polite"></div>
+    </form>
+  </section>
+
+  <!-- 成功摘要 -->
+  <section class="card" id="resultCard" hidden aria-labelledby="s3">
+    <h2 id="s3" tabindex="-1">報修已建立（模擬）</h2>
+    <dl id="resultList"></dl>
+    <p class="note" style="margin-top:8px">這是本地示範，總務處不會收到通知。</p>
+    <button type="button" class="block" id="againBtn">同一間教室再報修一項</button>
+    <button type="button" class="block" id="otherRoomBtn">改查其他教室</button>
+  </section>
+
+  <div id="demoTools" hidden>
+  <details>
+    <summary>資料往返示意（本地模擬）</summary>
+    <div class="details-body">
+      <p class="note">以下方法、路徑與欄位是本作品的約定，由頁面程式產生，沒有真正的 HTTP 連線。</p>
+      <pre id="log">尚未有資料往返。</pre>
+    </div>
+  </details>
+
+  <details>
+    <summary>教學情境控制</summary>
+    <div class="details-body">
+      <div class="field">
+        <label for="readMode">下一次讀取結果</label>
+        <select id="readMode">
+          <option value="auto">正常（依資料回傳）</option>
+          <option value="fail">讀取失敗（503）</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="submitMode">下一次送出結果</label>
+        <select id="submitMode">
+          <option value="auto">依資料判斷（成功或重複）</option>
+          <option value="fail">暫時無法送出（503）</option>
+          <option value="conflict">送出前剛有人報修同類（409）</option>
+        </select>
+      </div>
+      <p class="note">此區只在網址加上 ?demo=1 時顯示，供測試與教師檢查。每個設定只套用一次，之後自動回到預設，方便測試恢復流程。正式服務不應讓使用者選擇結果。</p>
+      <button type="button" class="block" id="resetBtn">重設所有練習資料</button>
+    </div>
+  </details>
+  </div>
+</main>
+
+<script>
+/* ===== 測試模式：網址加 ?demo=1 才顯示教學控制與資料往返 ===== */
+const DEMO = new URLSearchParams(location.search).get("demo") === "1";
+if (DEMO) document.getElementById("demoTools").hidden = false;
+
+/* ===== 虛構資料（只存在記憶體） ===== */
+const ROOMS = {};
+for (let g = 1; g <= 6; g++) {
+  for (let n = 1; n <= 3; n++) ROOMS[`${g}0${n}`] = `${g}年${n}班教室`;
+}
+ROOMS["701"] = "自然教室"; ROOMS["702"] = "電腦教室"; ROOMS["703"] = "音樂教室";
+
+const CATEGORIES = ["投影設備", "燈光", "電扇冷氣", "門窗", "網路", "其他"];
+
+let repairs = [
+  { repairId: "R-012", roomId: "302", category: "投影設備", status: "處理中" },
+  { repairId: "R-015", roomId: "702", category: "網路", status: "已受理" }
+];
+let nextId = 21;
+const DELAY = 1200; // 示範固定等待，非真實網路速度
+
+const state = { room: null, reading: false, submitting: false, logs: [] };
+
+/* ===== 元件 ===== */
+const $ = id => document.getElementById(id);
+const roomInput = $("room"), roomErr = $("roomErr"), queryBtn = $("queryBtn");
+const readStatus = $("readStatus"), formCard = $("formCard"), roomLabel = $("roomLabel");
+const desc = $("desc"), descCount = $("descCount"), descErr = $("descErr"), catErr = $("catErr");
+const photo = $("photo"), preview = $("preview");
+const submitBtn = $("submitBtn"), submitStatus = $("submitStatus");
+const resultCard = $("resultCard"), resultList = $("resultList");
+
+$("cats").innerHTML = CATEGORIES.map((c, i) =>
+  `<label><input type="radio" name="cat" value="${c}" ${i === 0 ? 'id="cat0"' : ""}>${c}</label>`).join("");
+
+/* ===== 工具 ===== */
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+function setLog(entry) {
+  state.logs.push(entry);
+  state.logs = state.logs.slice(-2);
+  $("log").textContent = JSON.stringify(state.logs, null, 2);
+}
+function openRepairs(roomId) {
+  return repairs.filter(r => r.roomId === roomId && r.status !== "已完成");
+}
+function selectedCat() {
+  const r = document.querySelector('input[name="cat"]:checked');
+  return r ? r.value : "";
+}
+function showError(input, errEl, msg) {
+  errEl.textContent = msg; errEl.hidden = false;
+  if (input) input.setAttribute("aria-invalid", "true");
+}
+function clearError(input, errEl) {
+  errEl.hidden = true; errEl.textContent = "";
+  if (input) input.removeAttribute("aria-invalid");
+}
+function setFormLocked(locked) {
+  document.querySelectorAll("#repairForm input, #repairForm textarea").forEach(x => x.disabled = locked);
+  submitBtn.disabled = locked;
+  submitBtn.textContent = locked ? "正在送出…" : "送出報修";
+}
+
+/* ===== 步驟 1：查詢教室 ===== */
+$("roomForm").addEventListener("submit", e => {
+  e.preventDefault();
+  if (state.reading) return;
+  const v = roomInput.value.trim();
+  if (!/^\d{3}$/.test(v)) {
+    showError(roomInput, roomErr, "請輸入 3 位數字的教室編號，例如 302。");
+    roomInput.focus(); return;
+  }
+  if (!ROOMS[v]) {
+    showError(roomInput, roomErr, `查無教室編號 ${v}，請確認教室分機號碼。`);
+    roomInput.focus(); return;
+  }
+  clearError(roomInput, roomErr);
+  resultCard.hidden = true;
+  readRepairs(v);
+});
+
+function readRepairs(roomId) {
+  state.reading = true;
+  queryBtn.disabled = true;
+  if (state.room !== roomId) formCard.hidden = true; // 換教室時，讀取成功前不開放填寫
+  state.room = roomId;
+  readStatus.innerHTML = "";
+  const box = el("div", "status info");
+  box.append(el("strong", null, "正在讀取這間教室的報修紀錄"), el("span", null, "請稍候。"));
+  readStatus.append(box);
+
+  const request = { mode: "本地模擬，沒有 HTTP 請求", method: "GET", path: `/api/repairs?roomId=${roomId}`, request: null };
+  const mode = $("readMode").value;
+  $("readMode").value = "auto";
+
+  setTimeout(() => {
+    state.reading = false;
+    queryBtn.disabled = false;
+    if (mode === "fail") {
+      setLog({ ...request, response: { status: 503 } });
+      formCard.hidden = true;
+      readStatus.innerHTML = "";
+      const err = el("div", "status error");
+      err.append(el("strong", null, "暫時無法讀取報修紀錄"),
+                 el("span", null, "尚未取得資料，不能確定是否已有人報修。請重新讀取。"));
+      const retry = el("button", "block", "重新讀取");
+      retry.type = "button";
+      retry.addEventListener("click", () => readRepairs(roomId));
+      err.append(retry);
+      readStatus.append(err);
+      retry.focus();
+      return;
+    }
+    const list = openRepairs(roomId);
+    setLog({ ...request, response: { status: 200, repairs: list } });
+    renderList(roomId, list);
+    roomLabel.textContent = `報修地點：${roomId}（${ROOMS[roomId]}）`;
+    formCard.hidden = false;
+  }, DELAY);
+}
+
+function renderList(roomId, list) {
+  readStatus.innerHTML = "";
+  if (list.length === 0) {
+    const box = el("div", "status ok");
+    box.append(el("strong", null, "這間教室目前沒有報修中的項目"),
+               el("span", null, "你是第一位通報者，請在下方填寫報修內容。"));
+    readStatus.append(box);
+  } else {
+    const box = el("div", "status info");
+    box.append(el("strong", null, `這間教室已有 ${list.length} 件報修處理中`),
+               el("span", null, "若是同一個問題，不需要重複送出。"));
+    const ul = el("ul", "list");
+    list.forEach(r => ul.append(el("li", null, `${r.repairId}｜${r.category}｜${r.status}`)));
+    box.append(ul);
+    readStatus.append(box);
+  }
+}
+
+/* ===== 步驟 2：表單即時回饋 ===== */
+desc.addEventListener("input", () => {
+  const n = desc.value.trim().length;
+  descCount.textContent = `目前 ${n} 字`;
+  if (n >= 10) clearError(desc, descErr);
+});
+document.getElementById("cats").addEventListener("change", () => clearError(null, catErr));
+
+photo.addEventListener("change", () => {
+  preview.innerHTML = "";
+  const f = photo.files[0];
+  if (!f) return;
+  if (!f.type.startsWith("image/")) {
+    photo.value = "";
+    preview.append(el("p", "err", "請選擇圖片檔。"));
+    return;
+  }
+  const img = el("img");
+  img.src = URL.createObjectURL(f);
+  img.alt = "報修照片預覽";
+  const rm = el("button", "block", "移除照片");
+  rm.type = "button";
+  rm.addEventListener("click", () => { photo.value = ""; preview.innerHTML = ""; photo.focus(); });
+  preview.append(img, rm);
+});
+
+/* ===== 送出 ===== */
+$("repairForm").addEventListener("submit", e => {
+  e.preventDefault();
+  submitRepair();
+});
+
+function submitRepair() {
+  if (state.submitting) return; // 防連按
+  const cat = selectedCat();
+  const text = desc.value.trim();
+  let firstBad = null;
+  if (!cat) { showError(null, catErr, "請選擇設備類別。"); firstBad = firstBad || $("cat0"); }
+  if (text.length < 10) {
+    showError(desc, descErr, `問題描述需 10～200 字，目前 ${text.length} 字。`);
+    firstBad = firstBad || desc;
+  }
+  if (firstBad) { submitStatus.innerHTML = ""; firstBad.focus(); return; }
+
+  state.submitting = true;
+  setFormLocked(true);
+  submitStatus.innerHTML = "";
+  const box = el("div", "status info");
+  box.append(el("strong", null, "正在送出報修"), el("span", null, "請勿重複點按。"));
+  submitStatus.append(box);
+
+  const roomId = state.room;
+  const hasPhoto = photo.files.length > 0;
+  const body = { roomId, category: cat, description: text, hasPhoto };
+  const request = { mode: "本地模擬，沒有 HTTP 請求", method: "POST", path: "/api/repairs", request: body };
+  const mode = $("submitMode").value;
+  $("submitMode").value = "auto";
+
+  setTimeout(() => {
+    state.submitting = false;
+    setFormLocked(false);
+    submitStatus.innerHTML = "";
+
+    if (mode === "fail") {
+      setLog({ ...request, response: { status: 503 } });
+      const err = el("div", "status error");
+      err.append(el("strong", null, "暫時無法送出"),
+                 el("span", null, "本次沒有建立報修。你填的類別與描述已保留，可以用原資料再次送出。"));
+      const retry = el("button", "block", "用原資料再次送出");
+      retry.type = "button";
+      retry.addEventListener("click", submitRepair);
+      err.append(retry);
+      submitStatus.append(err);
+      retry.focus();
+      return;
+    }
+
+    let existing = repairs.find(r => r.roomId === roomId && r.category === cat && r.status !== "已完成");
+    if (mode === "conflict" && !existing) {
+      // 模擬：送出前另一位老師剛好報修同一類別
+      existing = { repairId: "R-" + String(nextId++).padStart(3, "0"), roomId, category: cat, status: "已受理" };
+      repairs.push(existing);
+    }
+    if (existing) {
+      setLog({ ...request, response: { status: 409, existingRepairId: existing.repairId } });
+      renderList(roomId, openRepairs(roomId));
+      const err = el("div", "status error");
+      err.append(el("strong", null, "這個問題已有人報修"),
+                 el("span", null, `這間教室的「${cat}」已有報修（${existing.repairId}，${existing.status}），本次沒有建立。你填的描述已保留；若是不同的問題，請改選類別後再送出。`));
+      const back = el("button", "block", "改選類別");
+      back.type = "button";
+      back.addEventListener("click", () => $("cat0").focus());
+      err.append(back);
+      submitStatus.append(err);
+      back.focus();
+      return;
+    }
+
+    const repair = { repairId: "R-" + String(nextId++).padStart(3, "0"), roomId, category: cat, status: "已受理" };
+    repairs.push(repair);
+    setLog({ ...request, response: { status: 201, repairId: repair.repairId, status_text: repair.status } });
+    showResult(repair, text, hasPhoto);
+  }, DELAY);
+}
+
+function showResult(repair, text, hasPhoto) {
+  resultList.innerHTML = "";
+  const rows = [
+    ["報修編號", repair.repairId],
+    ["地點", `${repair.roomId}（${ROOMS[repair.roomId]}）`],
+    ["類別", repair.category],
+    ["問題描述", text],
+    ["照片", hasPhoto ? "已附 1 張（僅本頁預覽，未上傳）" : "未附"],
+    ["狀態", repair.status]
+  ];
+  rows.forEach(([k, v]) => resultList.append(el("dt", null, k), el("dd", null, v)));
+  formCard.hidden = true;
+  resultCard.hidden = false;
+  $("s3").focus();
+}
+
+function resetForm() {
+  document.querySelectorAll('input[name="cat"]').forEach(r => r.checked = false);
+  desc.value = ""; descCount.textContent = "目前 0 字";
+  photo.value = ""; preview.innerHTML = "";
+  clearError(desc, descErr); clearError(null, catErr);
+  submitStatus.innerHTML = "";
+}
+
+$("againBtn").addEventListener("click", () => {
+  resultCard.hidden = true;
+  resetForm();
+  readRepairs(state.room); // 重新讀取，可看到剛建立的報修
+});
+$("otherRoomBtn").addEventListener("click", () => {
+  resultCard.hidden = true;
+  resetForm();
+  formCard.hidden = true;
+  readStatus.innerHTML = "";
+  roomInput.value = "";
+  roomInput.focus();
+});
+$("resetBtn").addEventListener("click", () => location.reload());
+</script>
+</body>
+</html>
